@@ -103,6 +103,8 @@ final class AppModel: ObservableObject {
     @Published var bpm: Int?
     private var hrWindow: [(t: Date, v: Double)] = []
     private var hrCancellables = Set<AnyCancellable>()
+    /// Daily re-arm timer for the single-instant firmware smart alarm (see scheduleDailySmartAlarmRearm).
+    private var smartAlarmRearmTimer: Timer?
 
     init() {
         let live = LiveState()
@@ -118,6 +120,12 @@ final class AppModel: ObservableObject {
         // Physical-input + wear hooks (fired live by FrameRouter).
         live.onDoubleTap = { [weak self] in self?.handleDoubleTap() }
         live.onWristChange = { [weak self] worn in self?.handleWristChange(worn) }
+        // Re-arm the next day's firmware alarm the moment the strap reports it fired (if/when the
+        // firmware pushes STRAP_DRIVEN_ALARM_EXECUTED). Gated on enabled inside applySmartAlarm.
+        live.onSmartAlarmFired = { [weak self] in
+            guard let self, self.behavior.smartAlarmEnabled else { return }
+            self.applySmartAlarm()
+        }
         // HR-zone haptic coaching watches the smoothed bpm.
         $bpm.sink { [weak self] hr in self?.coachZone(hr) }.store(in: &hrCancellables)
         // Illness/strain early-warning recomputes when the daily history changes.
@@ -130,6 +138,11 @@ final class AppModel: ObservableObject {
             guard let self, bonded, self.behavior.smartAlarmEnabled else { return }
             self.applySmartAlarm()
         }.store(in: &hrCancellables)
+        // The firmware alarm is a single absolute instant with no recurrence, and was re-armed ONLY on
+        // a (re)bond or a settings change. A strap that stays continuously bonded (a Mac in range) would
+        // fire once and never re-arm — silent from day two. Re-arm daily so an always-on session keeps
+        // waking the user.
+        scheduleDailySmartAlarmRearm()
         // Re-apply "Continuous HRV capture" on every (re)bond: if on, the strap should hold the dense
         // realtime stream armed even with no Live screen open, so it banks beat-to-beat R-R 24/7 for
         // better overnight HRV/recovery/sleep. The BLE reconciler arms it on the off→on edge; pushing it
@@ -366,6 +379,25 @@ final class AppModel: ObservableObject {
                             minute: behavior.smartAlarmMinutes % 60, second: 0, of: now) ?? now
         if next <= now { next = cal.date(byAdding: .day, value: 1, to: next) ?? next }
         ble.armStrapAlarm(at: next)
+    }
+
+    /// Re-arms the single-instant firmware alarm once per day (just after local midnight) so a
+    /// continuously-bonded strap keeps waking the user past the first fire. macOS stays running so this
+    /// fires reliably; iOS additionally re-arms on foreground (it can't run timers while suspended).
+    /// `applySmartAlarm` self-gates on `smartAlarmEnabled`, so this is a no-op when the alarm is off.
+    private func scheduleDailySmartAlarmRearm() {
+        smartAlarmRearmTimer?.invalidate()
+        let cal = Calendar.current
+        guard let firstFire = cal.nextDate(after: Date(),
+                                           matching: DateComponents(hour: 0, minute: 1, second: 0),
+                                           matchingPolicy: .nextTime) else { return }
+        let timer = Timer(fire: firstFire, interval: 24 * 60 * 60, repeats: true) { [weak self] _ in
+            // Timer fires on the main run loop; hop to the main actor for the @MainActor model.
+            // applySmartAlarm self-gates on smartAlarmEnabled (and re-asserts the disarmed state if off).
+            Task { @MainActor in self?.applySmartAlarm() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        smartAlarmRearmTimer = timer
     }
 
     // MARK: - Physical inputs / wear automation

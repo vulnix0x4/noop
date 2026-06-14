@@ -67,6 +67,9 @@ public final class LiveState: ObservableObject {
     public var onDoubleTap: (() -> Void)?
     /// Fired (live only) when wrist-wear changes (true = put on, false = taken off).
     public var onWristChange: ((Bool) -> Void)?
+    /// Fired (live only) when the strap reports it executed its firmware alarm
+    /// (STRAP_DRIVEN_ALARM_EXECUTED). Wired by AppModel to re-arm the next day's alarm.
+    public var onSmartAlarmFired: (() -> Void)?
 
     /// True when the stuck-strap watchdog finds the strap has newer records than us but our frontier
     /// won't advance (likely needs a manual reboot; ~never after high-freq-sync removal). Banner-only.

@@ -64,6 +64,9 @@ struct StrandiOSApp: App {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 model.drainPendingIntents()
+                // Re-arm the strap's smart alarm on foreground: the firmware alarm is a single instant
+                // and iOS can't re-arm it while suspended, so it would otherwise fire once and stop.
+                model.applySmartAlarm()
                 Task {
                     health.refreshAuthIfPreviouslyGranted()
                     await health.sync()

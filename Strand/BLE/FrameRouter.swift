@@ -86,6 +86,11 @@ public final class FrameRouter {
                     if !state.worn { state.worn = true; state.onWristChange?(true) }
                 } else if ev.hasPrefix("WRIST_OFF") {
                     if state.worn { state.worn = false; state.onWristChange?(false) }
+                } else if ev.hasPrefix("STRAP_DRIVEN_ALARM_EXECUTED") {
+                    // The strap fired its firmware smart alarm → re-arm the next day's instant (the
+                    // alarm is a single absolute time with no recurrence). Belt-and-suspenders to the
+                    // daily/foreground re-arm in AppModel, since this event isn't always observed.
+                    state.onSmartAlarmFired?()
                 }
             }
 
