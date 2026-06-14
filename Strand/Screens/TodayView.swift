@@ -69,6 +69,16 @@ struct TodayView: View {
     // Android TodayScreen.selectedDayOffset. Loads re-run when this changes (see .task(id:)).
     @State private var selectedDayOffset = 0
 
+    // Memoized repo-derived values that are expensive (a full-history sort + per-call
+    // `repo.days.map`) yet INDEPENDENT of the ~1 Hz live-HR ticks that re-evaluate `body`
+    // while a strap streams. `LiveState` publishes R-R every second, so `body` (and every
+    // section it renders) re-runs ~1 Hz; recomputing Readiness and the recovery calibration
+    // over the whole history on each of those passes is pure waste. Cache them keyed on a
+    // cheap repo fingerprint and rebuild only when that changes — the same memoization
+    // SleepView and StressView already use to absorb the live-HR re-render flood.
+    @State private var derived: TodayDerived?
+    @State private var derivedKey: TodayInputKey?
+
     // Support sheet (donate + contact) — opened from the home toolbar on macOS, and from an
     // in-content control on iOS (a primary tab has no NavigationStack, so a `.toolbar` item never
     // renders on iPhone — the affordance was dead there before this in-flow button + sheet, #185-class).
@@ -124,8 +134,59 @@ struct TodayView: View {
     /// a past day with no recovery is missing data, not mid-calibration, so navigated days return nil.
     private var recoveryCalibration: Int? {
         guard selectedDayOffset == 0 else { return nil }
+        if derivedKey == todayInputKey, let d = derived { return d.calibration }
+        return computeCalibration()
+    }
+
+    /// On-device training-readiness synthesis (HRV / resting-HR / load). Read through the
+    /// memoized cache so the full-history sort inside `evaluate` runs once per data change,
+    /// not once per ~1 Hz `body` pass while HR streams.
+    private var readiness: ReadinessEngine.Readiness {
+        if derivedKey == todayInputKey, let d = derived { return d.readiness }
+        return computeReadiness()
+    }
+
+    // MARK: Memoization plumbing (absorbs the 1 Hz live-HR body flood)
+
+    /// Cached expensive derivations and the inputs they were built from.
+    private struct TodayDerived { let readiness: ReadinessEngine.Readiness; let calibration: Int? }
+
+    /// A cheap, O(1) fingerprint of the inputs `derived` depends on. Recomputed every render
+    /// (and per accessor call), but it only holds counts + the identity of the first/last and
+    /// today rows + the selected offset, so equality is fast and never walks the history.
+    private struct TodayInputKey: Equatable {
+        let loaded: Bool
+        let daysCount: Int
+        let firstDay: String?
+        let lastDay: DailyMetric?
+        let today: DailyMetric?   // covers repo.today?.recovery (calibration) and day rollover
+        let offset: Int
+        let refreshSeq: Int
+    }
+
+    private var todayInputKey: TodayInputKey {
+        TodayInputKey(
+            loaded: repo.loaded,
+            daysCount: repo.days.count,
+            firstDay: repo.days.first?.day,
+            lastDay: repo.days.last,
+            today: repo.today,
+            offset: selectedDayOffset,
+            refreshSeq: repo.refreshSeq)
+    }
+
+    private func computeReadiness() -> ReadinessEngine.Readiness {
+        ReadinessEngine.evaluate(days: repo.days, today: Repository.logicalDayKey(Date()))
+    }
+
+    private func computeCalibration() -> Int? {
+        guard selectedDayOffset == 0 else { return nil }
         return RecoveryScorer.calibrationNights(nightlyHrv: repo.days.map(\.avgHrv),
                                                 hasRecovery: repo.today?.recovery != nil)
+    }
+
+    private func buildDerived() -> TodayDerived {
+        TodayDerived(readiness: computeReadiness(), calibration: computeCalibration())
     }
 
     /// Synthesis-card copy while the recovery baseline calibrates; nil otherwise. Built as
@@ -188,6 +249,20 @@ struct TodayView: View {
         // Reload when the data refreshes OR the selected day changes — the HR trend and Rest score are
         // day-scoped, so navigating must re-fetch them for the newly selected window.
         .task(id: TodayLoadKey(seq: repo.refreshSeq, offset: selectedDayOffset)) { await loadAll() }
+        // Persist the freshly-built derivations so subsequent (1 Hz) renders with the same
+        // inputs hit the cache instead of recomputing. Writing @State during `body` is not
+        // allowed, so commit it after layout — the memoized accessors already return the
+        // correct value for the change frame, so there is no flash and no missed update.
+        .onChange(of: todayInputKey) { newKey in
+            derived = buildDerived()
+            derivedKey = newKey
+        }
+        .onAppear {
+            if derivedKey != todayInputKey {
+                derived = buildDerived()
+                derivedKey = todayInputKey
+            }
+        }
         #if os(macOS)
         // macOS hosts the Support affordance in the window toolbar (RootView's NavigationSplitView
         // supplies the toolbar) and presents it as the fixed-width SupportModalOverlay panel. On iOS
@@ -326,7 +401,7 @@ struct TodayView: View {
 
     @ViewBuilder
     private var readinessSection: some View {
-        let r = ReadinessEngine.evaluate(days: repo.days, today: Repository.logicalDayKey(Date()))
+        let r = readiness
         if r.level != .insufficient {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 SectionHeader("Readiness", overline: "Should you push today?")
