@@ -50,8 +50,15 @@ enum AIKeyStore {
         ]
     }
 
-    /// Store (or replace) the API key. Empty/whitespace input is treated as a clear.
-    static func save(_ key: String) {
+    /// UserDefaults key recording which provider the stored API key belongs to, so one provider's key
+    /// is never sent to another provider's endpoint (above all the arbitrary user-typed Custom URL).
+    private static let ownerKey = "ai.keyProvider"
+
+    /// The provider the stored key was saved for, or nil for a legacy key saved before this tracking.
+    static var ownerProvider: String? { UserDefaults.standard.string(forKey: ownerKey) }
+
+    /// Store (or replace) the API key for `owner`. Empty/whitespace input is treated as a clear.
+    static func save(_ key: String, owner: String) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { clear(); return }
         guard let data = trimmed.data(using: .utf8) else { return }
@@ -63,6 +70,7 @@ enum AIKeyStore {
         attrs[kSecValueData as String] = data
         attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         SecItemAdd(attrs as CFDictionary, nil)
+        UserDefaults.standard.set(owner, forKey: ownerKey)
     }
 
     /// Read the stored API key, or nil if none is set.
@@ -83,6 +91,7 @@ enum AIKeyStore {
     /// Remove any stored API key.
     static func clear() {
         SecItemDelete(baseQuery as CFDictionary)
+        UserDefaults.standard.removeObject(forKey: ownerKey)
     }
 }
 
@@ -242,7 +251,15 @@ final class AICoachEngine: ObservableObject {
     /// The key to send with a request: the stored key, or an empty string for the keyless Custom
     /// provider. `nil` means "not configured" — the caller surfaces `.noKey`.
     private var resolvedKey: String? {
-        if let k = AIKeyStore.read() { return k }
+        if let k = AIKeyStore.read() {
+            // Only send the stored key to the provider it was SAVED for — never Bearer one provider's
+            // key (e.g. a cloud OpenAI/Anthropic secret) to another provider's endpoint, above all the
+            // arbitrary user-typed Custom URL. A legacy key with no recorded owner is assumed to belong
+            // to a cloud provider, so it is never auto-sent to Custom.
+            let owner = AIKeyStore.ownerProvider
+            if owner == provider.rawValue { return k }
+            if owner == nil && provider != .custom { return k }
+        }
         return provider == .custom ? "" : nil
     }
 
@@ -273,7 +290,7 @@ final class AICoachEngine: ObservableObject {
 
     /// Store the user's pasted key securely. Clears any prior error.
     func setKey(_ key: String) {
-        AIKeyStore.save(key)
+        AIKeyStore.save(key, owner: provider.rawValue)
         errorText = nil
         objectWillChange.send() // `hasKey` is computed; nudge SwiftUI to re-read it.
         // Pull the user's ACTUAL current models from the provider so the picker is never stale.
@@ -410,11 +427,25 @@ final class AICoachEngine: ObservableObject {
         )
     }
 
+    /// Sliding window over the chat: the FIRST user turn (it carries the metrics context) plus the most
+    /// recent `maxHistoryMessages`, dropping the middle. Sending the whole growing history crowds out the
+    /// reply on small-context local servers (Ollama defaults to a 2048-token window — the Custom
+    /// provider's main use case) and balloons token cost/latency on cloud providers. (parity with Android)
+    private static let maxHistoryMessages = 10
+    private func windowedMessages() -> [ChatMessage] {
+        guard messages.count > Self.maxHistoryMessages + 1,
+              let firstUser = messages.firstIndex(where: { $0.role == .user }) else { return messages }
+        let recentStart = messages.count - Self.maxHistoryMessages
+        // If the first user turn already falls inside the recent window, that window covers it.
+        if firstUser >= recentStart { return Array(messages.suffix(Self.maxHistoryMessages)) }
+        return [messages[firstUser]] + Array(messages[recentStart...])
+    }
+
     /// The chat as `(role, content)` pairs, with the metrics context prepended to the first user turn.
     private func wireMessages(context: String) -> [(role: ChatMessage.Role, content: String)] {
         var out: [(role: ChatMessage.Role, content: String)] = []
         var contextInjected = false
-        for m in messages {
+        for m in windowedMessages() {
             if m.role == .user && !contextInjected {
                 contextInjected = true
                 out.append((.user, context + "\n\n---\n\nQuestion: " + m.text))
