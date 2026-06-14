@@ -153,8 +153,10 @@ struct TodayView: View {
                        onRefresh: { await repo.refresh() }) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 HealthAlertBanner()
-                // Browse past days — chevrons + a date jump capped at today (no future days).
-                DayNavBar(selectedOffset: selectedDayOffset) { selectedDayOffset = $0 }
+                // Browse past days — chevrons + a date jump capped at today (no future days). Anchor on
+                // the LOGICAL today (04:00 rollover) so the navigator's date matches the data the screen
+                // shows in the 00:00–04:00 window, instead of reading one calendar day ahead.
+                DayNavBar(selectedOffset: selectedDayOffset, today: Repository.logicalDay(Date())) { selectedDayOffset = $0 }
                 // The "still building" and "new here?" prompts are about getting today's scores going,
                 // so they stay anchored to today rather than reappearing on every navigated past day.
                 if selectedDayOffset == 0 && repo.today?.recovery == nil {

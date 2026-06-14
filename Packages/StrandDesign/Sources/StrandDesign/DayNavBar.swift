@@ -11,18 +11,23 @@ import SwiftUI
 
 public struct DayNavBar: View {
     private let selectedOffset: Int
+    private let today: Date
     private let onSelect: (Int) -> Void
 
     @State private var showingPicker = false
 
-    public init(selectedOffset: Int, onSelect: @escaping (Int) -> Void) {
+    /// `today` is the date treated as offset 0. The host passes its LOGICAL today (the 04:00-rollover
+    /// day its data keys on) so that between midnight and 4am the navigator's date matches the data on
+    /// screen rather than reading one calendar day ahead. Defaults to `Date()` for plain callers.
+    public init(selectedOffset: Int, today: Date = Date(), onSelect: @escaping (Int) -> Void) {
         self.selectedOffset = selectedOffset
+        self.today = today
         self.onSelect = onSelect
     }
 
-    /// The calendar day the current offset resolves to, counting back from the local day.
+    /// The calendar day the current offset resolves to, counting back from `today`.
     private var selectedDay: Date {
-        Calendar.current.date(byAdding: .day, value: -selectedOffset, to: Date()) ?? Date()
+        Calendar.current.date(byAdding: .day, value: -selectedOffset, to: today) ?? today
     }
 
     private var canGoNewer: Bool { selectedOffset > 0 }
@@ -41,6 +46,8 @@ public struct DayNavBar: View {
                 Image(systemName: "chevron.left")
                     .font(StrandFont.headline)
                     .foregroundStyle(StrandPalette.accent)
+                    .frame(width: 44, height: 44)        // ≥44pt hit target (HIG); glyph stays 17pt
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Previous day")
@@ -75,6 +82,8 @@ public struct DayNavBar: View {
                 Image(systemName: "chevron.right")
                     .font(StrandFont.headline)
                     .foregroundStyle(canGoNewer ? StrandPalette.accent : StrandPalette.textTertiary)
+                    .frame(width: 44, height: 44)        // ≥44pt hit target (HIG); glyph stays 17pt
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!canGoNewer)
@@ -91,8 +100,8 @@ public struct DayNavBar: View {
             set: { newValue in
                 let cal = Calendar.current
                 let start = cal.startOfDay(for: newValue)
-                let today = cal.startOfDay(for: Date())
-                let days = cal.dateComponents([.day], from: start, to: today).day ?? 0
+                let todayStart = cal.startOfDay(for: self.today)
+                let days = cal.dateComponents([.day], from: start, to: todayStart).day ?? 0
                 onSelect(max(0, days))
                 showingPicker = false
             }
