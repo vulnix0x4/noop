@@ -22,6 +22,11 @@ public final class LiveState: ObservableObject {
     /// alarm, double-tap, history offload) only works when this is true.
     @Published public var encryptedBond: Bool = false
     @Published public var heartRate: Int? = nil
+    /// Whether the heavy R10/R11 realtime burst is currently armed (the "live feed"). Tracks the
+    /// realtime INTENT (startRealtime/stopRealtime), NOT `heartRate` — the lightweight 0x2A37 profile
+    /// keeps setting heartRate while bonded, so a heartRate-driven toggle could never read "off". The
+    /// menu-bar Start/Stop-live-feed button reads this.
+    @Published public var liveFeedActive: Bool = false
     /// Latest R-R packet exactly as it arrived from the strap. Keep this as the "fresh packet"
     /// surface for stress/breathing logic that reacts to the most recent arrival (and the standard
     /// 0x2A37 profile, which is the reliable R-R source). Drive it ONLY via `setRRIntervals(_:)`.

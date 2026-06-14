@@ -269,11 +269,11 @@ public struct MenuBarContent: View {
         VStack(spacing: 8) {
             if live.bonded {
                 menuButton(
-                    live.heartRate != nil ? "Stop live feed" : "Start live feed",
-                    systemImage: live.heartRate != nil ? "pause.fill" : "play.fill",
+                    live.liveFeedActive ? "Stop live feed" : "Start live feed",
+                    systemImage: live.liveFeedActive ? "pause.fill" : "play.fill",
                     tone: .accent
                 ) {
-                    if live.heartRate != nil { model.stopRealtimeHR() } else { model.startRealtimeHR() }
+                    if live.liveFeedActive { model.stopRealtimeHR() } else { model.startRealtimeHR() }
                 }
             } else {
                 menuButton(

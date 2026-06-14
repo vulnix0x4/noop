@@ -930,6 +930,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// on disappear so it does not permanently compete with historical offload.
     public func startRealtime() {
         screenWantsRealtime = true
+        state.liveFeedActive = true   // drives the menu-bar Start/Stop label off the real intent
         // The user explicitly (re-)asked for the full stream by opening Live / tapping Start HR — give the
         // heavy R10/R11 burst another chance even if a prior marginal-radio fallback had tripped. If the
         // radio still can't take it, the detector will simply trip again. (#80) This is screen-only intent;
@@ -948,6 +949,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// continuous capture is on keeps the dense stream flowing.
     public func stopRealtime() {
         screenWantsRealtime = false
+        state.liveFeedActive = false   // flip the menu-bar toggle back to "Start live feed"
         // Always stop the heavy R10/R11 burst when the Live screen leaves — it's the battery-hungry part
         // and is only ever wanted while a live screen is up. The lightweight TOGGLE/0x2A37 R-R stream is
         // what continuous capture keeps; the reconciler decides whether to disarm that.
