@@ -148,6 +148,38 @@ final class SleepStagerTests: XCTestCase {
         XCTAssertEqual(sessions[0].restingHR, 50)
     }
 
+    /// REGRESSION (late wake): a real overnight sleep whose TAIL runs past the daytime-band
+    /// start — here a brief 40-min morning stir then back to sleep until ~12:40 — must keep the
+    /// LATE wake time. The tail is daytime-centered and, on its own, fails the daytime guard's
+    /// resting-HR bar (its HR sits at baseline, not below it), so before the continuation
+    /// exemption it was rejected and the wake was truncated to ~10:00 ("woke at noon" bug).
+    /// Because the tail directly continues a chain that began overnight (gap ≤ 90 min), it is
+    /// kept — the night's wake reaches ~12:40, not late morning.
+    func testOvernightSleepTailPastNoonKeepsLateWake() {
+        let nStart = nightStart(02)                 // 02:00 overnight onset
+        let nDur = 8 * 60 * 60                       // → 10:00
+        let wStart = nStart + nDur                  // 10:00 brief morning wake
+        let wDur = 40 * 60                          // 40 min: > mergeMin (15), ≤ continuation (90)
+        let tStart = wStart + wDur                  // 10:40 back to sleep
+        let tDur = 2 * 60 * 60                       // → 12:40; center ~11:40 in the daytime band
+
+        // Tail HR == night HR == baseline (50): passes the basic HR confirmation (≤ baseline×1.05)
+        // but FAILS the stricter daytime resting bar (> baseline×0.95), so only the overnight
+        // continuation exemption can keep it.
+        let grav = stillGravity(start: nStart, durationS: nDur)
+                 + activeGravity(start: wStart, durationS: wDur)
+                 + stillGravity(start: tStart, durationS: tDur)
+        let hr = hrStream(start: nStart, durationS: nDur, bpm: 50)
+               + hrStream(start: wStart, durationS: wDur, bpm: 70)
+               + hrStream(start: tStart, durationS: tDur, bpm: 50)
+
+        let sessions = SleepStager.detectSleep(hr: hr, gravity: grav)
+        let latestWake = sessions.map(\.end).max() ?? 0
+        XCTAssertGreaterThanOrEqual(
+            latestWake, tStart + tDur - 10 * 60,
+            "overnight sleep's post-11:00 tail must be kept — wake not truncated to late morning")
+    }
+
     /// A 70-min still, low-HR OVERNIGHT window registers unchanged: its center (≈03:35) is
     /// outside the daytime band, so the guard never applies and only the base 60-min minimum
     /// gates it. This pins that the guard leaves overnight detection exactly as it was.

@@ -91,6 +91,12 @@ public enum SleepStager {
     /// Local hour (exclusive) at which the stricter daytime bar ends. A window whose center
     /// is in [start, end) local hours is "daytime"; everything else is "overnight".
     public static let daytimeBandEndHour: Int = 20
+    /// A still sleep run that resumes within this gap of an overnight sleep chain is the
+    /// night's TAIL — a late wake past the daytime-band start, or a brief morning stir then
+    /// back to sleep — not an isolated daytime nap, so it skips the daytime guard. Without
+    /// this, a real sleep that ran past ~11:00 local had its tail rejected as a "nap" and the
+    /// displayed wake time was truncated to late morning (late sleepers / shift workers).
+    public static let nightContinuationGapMin: Int = 90
     /// A daytime window must run at least this long (minutes) to count — short still
     /// daytime stretches are the dominant false-positive and are rejected outright.
     public static let daytimeMinSleepMin: Int = 90
@@ -415,6 +421,16 @@ public enum SleepStager {
         return hour >= daytimeBandStartHour && hour < daytimeBandEndHour
     }
 
+    /// True when a run's ONSET (start), in LOCAL time, falls OUTSIDE the daytime band — i.e.
+    /// the sleep began at night, not during the day. Anchors a continuous-sleep chain: only a
+    /// chain that began overnight may carry its tail past the daytime-band start (a late wake).
+    static func isOvernightOnset(_ start: Int, tzOffsetSeconds: Int) -> Bool {
+        let local = start + tzOffsetSeconds
+        let secOfDay = ((local % secondsPerDay) + secondsPerDay) % secondsPerDay
+        let hour = secOfDay / 3_600
+        return !(hour >= daytimeBandStartHour && hour < daytimeBandEndHour)
+    }
+
     /// Stricter bar for a daytime-centered window (#90). A real daytime nap clears it; a
     /// long sedentary still stretch (the false-positive this guards) does not, because it
     /// is either too short or never shows a genuine cardiac dip below the day median.
@@ -470,6 +486,15 @@ public enum SleepStager {
         let minSleepS = minSleepMin * 60
 
         var sessions: [SleepSession] = []
+        // Continuous-sleep chain tracking so a real overnight sleep that runs PAST the daytime-band
+        // start (a late wake, or a brief morning stir then back to sleep that leaves the tail as its
+        // own daytime-centered run) is NOT mistaken for an isolated daytime nap and rejected — which
+        // truncated the displayed wake time to ~late morning. A daytime run skips the nap guard ONLY
+        // when it directly continues (≤ nightContinuationGap) a chain that BEGAN overnight; isolated
+        // daytime stillness (hours after waking) still faces the full guard.
+        let continuationGapS = nightContinuationGapMin * 60
+        var chainPrevEnd: Int? = nil       // end of the last accepted sleep run
+        var chainFromOvernight = false     // did the current contiguous chain begin overnight?
         for p in runs {
             if p.stage != "sleep" { continue }
             if (p.end - p.start) <= minSleepS { continue }
@@ -478,14 +503,20 @@ public enum SleepStager {
             // must clear a stricter bar (≥daytimeMinSleepMin AND a real resting-HR dip).
             // Overnight windows skip this entirely. restingHR is computed here (reused below).
             let resting = sessionRestingHR(start: p.start, end: p.end, hr: hrS)
+            let continuesChain = chainPrevEnd.map { p.start - $0 <= continuationGapS } ?? false
+            let isNightTail = continuesChain && chainFromOvernight   // the night's tail, not a nap
             if isDaytimeCenter(p, tzOffsetSeconds: tzOffsetSeconds),
-               !passesDaytimeGuard(p, restingHR: resting, baseline: baseline) { continue }
+               !passesDaytimeGuard(p, restingHR: resting, baseline: baseline),
+               !isNightTail { continue }
             let stages = stageSession(start: p.start, end: p.end, grav: grav,
                                       hr: hrS, rr: rrS, resp: respS)
             let eff = efficiency(start: p.start, end: p.end, stages: stages)
             let avgHrv = sessionAvgHRV(start: p.start, end: p.end, rr: rrS)
             sessions.append(SleepSession(start: p.start, end: p.end, efficiency: eff,
                                          stages: stages, restingHR: resting, avgHRV: avgHrv))
+            // A run that does NOT continue the chain re-anchors it on this run's onset.
+            if !continuesChain { chainFromOvernight = isOvernightOnset(p.start, tzOffsetSeconds: tzOffsetSeconds) }
+            chainPrevEnd = p.end
         }
         sessions.sort { $0.start < $1.start }
         return sessions
