@@ -55,11 +55,15 @@ public struct YearHeatStrip: View {
     /// Hovered cell as (weekIndex, row), or nil.
     @State private var hoverCell: (week: Int, row: Int)? = nil
 
-    private var calendar: Calendar {
+    // A fixed Monday-first Gregorian calendar, stored once as a constant rather than a computed
+    // property. `buildWeeks()` runs on every render (including each hover, which mutates @State)
+    // and reads `.component` for up to 365 days, so the old computed form allocated a fresh
+    // Calendar on every one of those ~730 accesses per render.
+    private static let calendar: Calendar = {
         var c = Calendar(identifier: .gregorian)
         c.firstWeekday = 2 // Monday-first columns read nicely
         return c
-    }
+    }()
 
     // Group days into week columns. weekday 0 = Monday ... 6 = Sunday.
     private struct Week: Identifiable {
@@ -87,7 +91,7 @@ public struct YearHeatStrip: View {
             }
             current.cells[row] = day
             // tag month label at the first cell of a new month
-            let month = calendar.component(.month, from: day.date)
+            let month = Self.calendar.component(.month, from: day.date)
             if month != lastMonth {
                 current.monthLabel = monthShort(day.date)
                 lastMonth = month
@@ -100,7 +104,7 @@ public struct YearHeatStrip: View {
 
     private func weekdayRow(_ date: Date) -> Int {
         // Map Calendar weekday (1=Sun...7=Sat) to Monday-first 0...6.
-        let wd = calendar.component(.weekday, from: date)
+        let wd = Self.calendar.component(.weekday, from: date)
         return (wd + 5) % 7
     }
 
