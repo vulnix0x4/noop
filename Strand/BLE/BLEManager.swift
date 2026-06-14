@@ -1512,6 +1512,15 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         self.restoredPeripheral = p
         p.delegate = self
         resetCharacteristics()
+        // Re-derive the inbound-decode family from the persisted model. connect()/startScan() set the
+        // reassembler + router family, but NEITHER runs on the restore path — so without this a restored
+        // WHOOP 5/MG would decode its puffin notify frames with the default .whoop4 framing (different
+        // length offset + constant), producing corrupt/empty data for the whole unattended session until
+        // the user manually taps connect.
+        selectedModel = .persisted
+        reassembler = Reassembler(family: selectedModel.deviceFamily)
+        router.family = selectedModel.deviceFamily
+        configureCollectorFamily()
         // Collection only runs post-bond, so a restored link was already bonded;
         // seed those flags now. `didWriteValueFor` won't re-fire on its own.
         state.bonded = true
