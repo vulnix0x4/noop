@@ -13,6 +13,9 @@ struct BreathingView: View {
 
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
+    /// When the user has Reduce Motion on, the large repeating inhale/exhale orb zoom is
+    /// suppressed — the breath is cued by the phase word + haptics instead. (a11y)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // MARK: Pace presets
 
@@ -515,10 +518,18 @@ struct BreathingView: View {
         phaseDeadline = .distantFuture
         // Leaving mid-session (onDisappear) still banks the outcome.
         if wasRunning { captureOutcome() }
-        withAnimation(.easeInOut(duration: 0.8)) {
-            orbProgress = 0
+        if reduceMotion {
+            orbProgress = 0          // Reduce Motion: no animated collapse.
+        } else {
+            withAnimation(.easeInOut(duration: 0.8)) {
+                orbProgress = 0
+            }
         }
     }
+
+    /// Steady orb fraction held while Reduce Motion is on — a calm mid-size circle that
+    /// neither zooms nor pulses; the breath is guided by the phase word + haptics instead.
+    private let reducedSteadyOrb: CGFloat = 0.5
 
     /// End-of-session outcome: "+18% vs start · peak 64 ms" — the session MEAN
     /// rolling RMSSD vs the start baseline. Sessions under 2 minutes are treated
@@ -544,8 +555,15 @@ struct BreathingView: View {
         let duration = (newPhase == .inhale) ? pace.inhale : pace.exhale
         phaseDeadline = now.addingTimeInterval(duration)
 
-        withAnimation(.easeInOut(duration: duration)) {
-            orbProgress = (newPhase == .inhale) ? 1.0 : 0.0
+        if reduceMotion {
+            // Reduce Motion: hold the orb steady rather than scaling it between 0.42x and
+            // full every phase. The breath cue is carried entirely by the phase word
+            // ("Breathe in…/out…") and the haptic pulses below, so nothing is lost.
+            orbProgress = reducedSteadyOrb
+        } else {
+            withAnimation(.easeInOut(duration: duration)) {
+                orbProgress = (newPhase == .inhale) ? 1.0 : 0.0
+            }
         }
 
         if buzz {
