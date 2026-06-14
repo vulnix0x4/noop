@@ -49,7 +49,16 @@ struct StrandiOSApp: App {
                         bpm: model.bpm ?? model.live.heartRate,
                         recovery: model.repo.days.last(where: { $0.recovery != nil })?
                             .recovery.map { Int($0.rounded()) },
-                        bonded: model.live.bonded
+                        connected: model.live.connected
+                    )
+                }
+                // End the Live Activity the moment the link drops, even if no further HR tick arrives.
+                .onReceive(model.live.$connected) { isConnected in
+                    liveActivity.update(
+                        bpm: isConnected ? (model.bpm ?? model.live.heartRate) : nil,
+                        recovery: model.repo.days.last(where: { $0.recovery != nil })?
+                            .recovery.map { Int($0.rounded()) },
+                        connected: isConnected
                     )
                 }
         }
