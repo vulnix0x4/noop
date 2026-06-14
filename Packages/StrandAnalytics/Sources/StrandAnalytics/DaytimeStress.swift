@@ -184,8 +184,16 @@ public enum DaytimeStress {
         //    across-hour SD. This makes a flat day read ~baseline and a spiky day surface
         //    its tense hours — without any cross-day history. Falls back to the plain mean
         //    when there are too few scored hours for a quartile.
-        let hrMeans = aggs.compactMap { $0.meanHR }
-        let rmssdVals = aggs.compactMap { $0.rmssd }
+        //
+        //    Built from the WAKING hours only — the same hours scored in step 4. Sleep is the
+        //    calmest, lowest-HR / highest-HRV stretch of the day, and the analysis window
+        //    always begins at local midnight, so the current day routinely carries several
+        //    hours of it. Letting those night hours into the reference drags the "calm" anchor
+        //    far beneath every waking hour, inflating an ordinary calm day toward HIGH and
+        //    falsely tripping the sustained-high Breathe nudge.
+        let referenceAggs = aggs.filter { isWakingHour($0.bucket) }
+        let hrMeans = referenceAggs.compactMap { $0.meanHR }
+        let rmssdVals = referenceAggs.compactMap { $0.rmssd }
         let refHR = calmReference(hrMeans, calmIsLow: true)         // calm HR is LOW
         let refRMSSD = calmReference(rmssdVals, calmIsLow: false)   // calm HRV is HIGH
         let sdHR = std(hrMeans, mean: mean(hrMeans))
@@ -195,9 +203,8 @@ public enum DaytimeStress {
         var points: [HourPoint] = []
         points.reserveCapacity(aggs.count)
         for a in aggs {
+            guard isWakingHour(a.bucket) else { continue }
             let hourOfDay = floorDiv(a.bucket, bucketSeconds) % 24
-            let waking = hourOfDay >= wakingStartHour && hourOfDay < wakingEndHour
-            guard waking else { continue }
             // The wall-clock bucket start (undo the local shift applied above).
             let wallStart = a.bucket - tzOffsetSeconds
             // Score only when at least one signal is present AND HR cleared the count gate
@@ -242,6 +249,14 @@ public enum DaytimeStress {
         return (r != 0 && (r < 0) != (b < 0)) ? q - 1 : q
     }
 
+    /// Whether a local hour-bucket start falls inside the waking window the timeline scores
+    /// (06:00–22:00). The single source of truth for "waking" — used both to build the calm
+    /// reference and to pick the hours to score, so the two can never drift apart.
+    static func isWakingHour(_ bucket: Int) -> Bool {
+        let hourOfDay = floorDiv(bucket, bucketSeconds) % 24
+        return hourOfDay >= wakingStartHour && hourOfDay < wakingEndHour
+    }
+
     /// The day's "calm" reference for a signal: the quartile toward the calm end (lower
     /// quartile when calm is LOW, e.g. HR; upper quartile when calm is HIGH, e.g. RMSSD).
     /// Falls back to the plain mean below 4 values, and to nil when empty.
@@ -255,6 +270,7 @@ public enum DaytimeStress {
     /// Linear-interpolated quantile of an already-sorted, non-empty array.
     static func quantile(_ sorted: [Double], _ q: Double) -> Double {
         let n = sorted.count
+        guard n > 0 else { return 0 }   // defensive: callers guard emptiness; never trap on []
         if n == 1 { return sorted[0] }
         let pos = q * Double(n - 1)
         let lo = Int(pos), hi = min(lo + 1, n - 1)

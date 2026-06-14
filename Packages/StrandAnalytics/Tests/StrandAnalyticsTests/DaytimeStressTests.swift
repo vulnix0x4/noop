@@ -72,6 +72,37 @@ final class DaytimeStressTests: XCTestCase {
         if let mean = r.dayMean { XCTAssertLessThan(mean, DaytimeStress.highBandFloor) }
     }
 
+    func testSleepHoursInTheWindowDoNotShiftTheWakingTimeline() {
+        // Regression: the calm reference is built from the WAKING hours that are actually
+        // scored, not the whole 24 h. The analysis window always starts at local midnight, so
+        // the current day routinely carries several hours of sleep — the calmest, lowest-HR
+        // stretch of the day. If those night hours leak into the reference they drag the "calm"
+        // anchor far below every waking hour, inflating an ordinary calm day into sustained
+        // high stress (tripping the passive Breathe nudge). So adding calm sleep hours to the
+        // input must NOT change the waking timeline.
+        let waking: [HRSample] = zip(6...17, [62, 64, 63, 65, 64, 63, 62, 64, 66, 63, 64, 65])
+            .flatMap { hourHR($0.0, bpm: $0.1) }
+        let sleep: [HRSample] = zip(0...5, [50, 51, 52, 51, 50, 53])
+            .flatMap { hourHR($0.0, bpm: $0.1) }
+
+        let wakingOnly = DaytimeStress.analyze(hr: waking, rr: [])
+        let withSleep = DaytimeStress.analyze(hr: sleep + waking, rr: [])
+
+        XCTAssertEqual(withSleep.sustainedHigh, wakingOnly.sustainedHigh,
+            "sleep hours sharing the window must not change the sustained-high verdict")
+        for h in 6...17 {
+            guard let withLvl = withSleep.scored.first(where: { $0.hour == h })?.level,
+                  let withoutLvl = wakingOnly.scored.first(where: { $0.hour == h })?.level else {
+                XCTFail("waking hour \(h) should be scored in both runs"); continue
+            }
+            XCTAssertEqual(withLvl, withoutLvl, accuracy: 1e-9,
+                "the night's sleep hours leaked into the daytime reference and shifted waking hour \(h)")
+        }
+        // The plain sanity check the bug violated: an ordinary calm day is not "sustained high".
+        XCTAssertFalse(withSleep.sustainedHigh,
+            "a calm desk day must not read as sustained high stress")
+    }
+
     func testTimezoneOffsetShiftsWakingWindow() {
         // ts at UTC hour 4 with a +3 h offset lands at local hour 7 → inside waking hours.
         let hr = hourHR(4, bpm: 60)
