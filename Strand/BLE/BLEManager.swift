@@ -1280,6 +1280,14 @@ public final class BLEManager: NSObject, ObservableObject {
         let localFmt = DateFormatter()
         localFmt.dateFormat = "EEE HH:mm zzz"
         if selectedModel.deviceFamily == .whoop5 {
+            // The 5/MG firmware alarm is unconfirmed (arming ACKs, but the wake actually FIRING is not
+            // verified), so only arm it when the user has opted into Experimental — matching the Android
+            // client, which refuses to arm it otherwise. Without this a normal 5/MG user is silently
+            // armed onto an alarm that may never fire.
+            guard PuffinExperiment.isEnabled else {
+                log("Alarm: 5/MG firmware alarm needs the Experimental toggle (unconfirmed) — not armed")
+                return
+            }
             // 5/MG SET_ALARM_TIME is REVISION_4: [04][id][u32 sec][u16 subsec][12-byte 47/152
             // pattern, overallLoop 7, 30 s]. No SET_CLOCK preamble (see doc comment above).
             let wakeMs = Int64((date.timeIntervalSince1970 * 1000).rounded())
