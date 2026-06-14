@@ -217,6 +217,10 @@ public final class Reassembler {
     private var buf: [UInt8] = []
     private let family: DeviceFamily
 
+    /// ~4x the largest observed WHOOP frame (~1920 B raw/historical); a declared total beyond this
+    /// is a corrupt or misaligned length, not a real frame. Mirrors Android `Framing.kt MAX_FRAME_BYTES`.
+    static let maxFrameBytes = 8192
+
     /// `family` selects the frame-length convention:
     /// - WHOOP 4.0 reads a u16 length at `buf[1..3]`, total = `length + 4`.
     /// - WHOOP 5.0 ("puffin") reads a u16 declared length at `buf[2..4]` (after the `0xAA` SOF and
@@ -249,6 +253,14 @@ public final class Reassembler {
                 total = (Int(buf[1]) | (Int(buf[2]) << 8)) + 4
             case .whoop5:
                 total = (Int(buf[2]) | (Int(buf[3]) << 8)) + 8
+            }
+            if total > Reassembler.maxFrameBytes {
+                // A corrupt or misaligned SOF decodes an impossibly large length; we'd otherwise wait
+                // forever for bytes that can never arrive over BLE and the live stream would freeze
+                // until a reconnect. Anything past the 8 KB ceiling is garbage: drop this 0xAA and
+                // resync to the next SOF instead of stalling. (Mirrors the Android Reassembler.)
+                buf.removeFirst(1)
+                continue
             }
             if buf.count < total {
                 break

@@ -55,4 +55,17 @@ final class ReassemblerTests: XCTestCase {
         XCTAssertTrue(r.feed(Array(a[0..<5])).isEmpty)        // header + part
         XCTAssertEqual(r.feed(Array(a[5..<a.count])), [a])    // remainder completes it
     }
+
+    func testOversizedDeclaredLengthResyncsInsteadOfWedging() {
+        // A corrupt/misaligned 0xAA whose declared length is impossibly large (a bit-flip, or a
+        // mid-frame resync injecting a spurious SOF) must be dropped so the stream resyncs to the
+        // next SOF. Otherwise feed() waits forever for bytes that can never arrive over BLE and the
+        // live stream freezes until a reconnect.
+        let valid = frameFromPayload([0x09], type: 40)
+        let r = Reassembler()
+        // Spurious SOF declaring a 0xFFFF length (total 65539, far past the 8 KB ceiling), then a
+        // real frame. Without the ceiling this returns [] (wedged); with it, the real frame emerges.
+        let out = r.feed([0xAA, 0xFF, 0xFF, 0x00] + valid)
+        XCTAssertEqual(out, [valid], "a garbage oversized SOF must not wedge the stream")
+    }
 }
