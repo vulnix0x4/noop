@@ -86,4 +86,21 @@ final class HRZonesTests: XCTestCase {
         XCTAssertEqual(tiz.seconds(inZone: 1), 3.0, accuracy: 1e-9)
         XCTAssertEqual(tiz.total, 3.0, accuracy: 1e-9)  // all time accounted for
     }
+
+    func testTimeInZoneCapsHugePositiveGap() {
+        let zs = HRZones.zones(maxHR: 200)
+        // Three 1 Hz zone-1 samples (median gap 1 s), then one sample an HOUR later. The 3600 s
+        // gap before the last sample must be capped at the median (1 s) — as the comment promises —
+        // not credited in full, so one wear gap / sparse stretch can't blow up a bucket.
+        let hr = [
+            HRSample(ts: 0, bpm: 110),
+            HRSample(ts: 1, bpm: 110),
+            HRSample(ts: 2, bpm: 110),
+            HRSample(ts: 3602, bpm: 110),
+        ]
+        let tiz = HRZones.timeInZone(hr, zoneSet: zs)
+        XCTAssertLessThan(tiz.total, 10.0,
+                          "a huge inter-sample gap must be capped at the median, not credited in full")
+        XCTAssertEqual(tiz.seconds(inZone: 1), tiz.total, accuracy: 1e-9)  // all of it is zone 1
+    }
 }

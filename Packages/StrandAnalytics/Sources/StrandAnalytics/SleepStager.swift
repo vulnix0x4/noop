@@ -681,7 +681,10 @@ public enum SleepStager {
     /// Same-length convolution with reflect padding (edge-stable).
     static func convolveReflect(_ x: [Double], _ kernel: [Double]) -> [Double] {
         let r = kernel.count / 2
-        if r == 0 || x.isEmpty { return x }
+        // A signal shorter than the kernel radius can't be reflect-padded (the mirror reads x[r]
+        // and x[x.count-2-i]) — return it unchanged rather than indexing out of bounds. In practice
+        // the only caller is gated by the 60-min session floor, so this is defensive.
+        if r == 0 || x.count <= r { return x }
         // Reflect padding: numpy 'reflect' mirrors WITHOUT repeating the edge sample.
         var padded = [Double]()
         padded.reserveCapacity(x.count + 2 * r)
@@ -788,8 +791,10 @@ public enum SleepStager {
             }
         }
         if distance <= 1 || candidates.isEmpty { return candidates }
-        // Enforce minimum distance: greedily keep tallest, scipy-style.
-        let byHeight = candidates.sorted { x[$0] > x[$1] }
+        // Enforce minimum distance: greedily keep tallest, scipy-style. Tie-break on the lower
+        // index so equal-height peaks resolve deterministically and identically to the Android
+        // port's stable sort (Swift's sorted(by:) is not guaranteed stable).
+        let byHeight = candidates.sorted { x[$0] != x[$1] ? x[$0] > x[$1] : $0 < $1 }
         var keep = [Bool](repeating: true, count: candidates.count)
         let indexOf = Dictionary(uniqueKeysWithValues: candidates.enumerated().map { ($1, $0) })
         for p in byHeight {

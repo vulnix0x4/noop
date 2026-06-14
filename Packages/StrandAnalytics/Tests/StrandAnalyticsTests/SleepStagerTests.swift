@@ -529,4 +529,25 @@ final class SleepStagerTests: XCTestCase {
         XCTAssertNotNil(hrv)
         XCTAssertLessThan(hrv!, 50, "ectopic spikes must be rejected before rMSSD")
     }
+
+    // MARK: - Helper robustness
+
+    func testConvolveReflectShortInputDoesNotCrash() {
+        // A signal far shorter than the kernel radius must not index out of bounds. The DoG sigma2
+        // kernel has radius 60; a 3-sample signal would read x[60] without the length guard. (The
+        // production caller is gated by the 60-min session floor, so this is defensive hardening.)
+        let kernel = SleepStager.gaussianKernel(sigmaS: 600)   // radius 60
+        let short = [1.0, 2.0, 3.0]
+        XCTAssertEqual(SleepStager.convolveReflect(short, kernel), short,
+                       "a signal shorter than the kernel radius returns unchanged instead of trapping")
+    }
+
+    func testFindPeaksTieBreakKeepsLowestIndex() {
+        // Two equal-height peaks within `distance` of each other: the greedy min-distance
+        // suppression must keep the LOWER index deterministically (matching the Android stable
+        // sort), rather than relying on the stdlib sort's incidental tie order.
+        let x = [0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0]   // equal peaks at indices 2 and 4
+        XCTAssertEqual(SleepStager.findPeaks(x, distance: 5, height: 0.5), [2],
+                       "equal-height peaks within distance keep the lowest index")
+    }
 }

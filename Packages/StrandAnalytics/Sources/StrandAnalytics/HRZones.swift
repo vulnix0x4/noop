@@ -165,7 +165,7 @@ public enum HRZones {
                 let gap = Double(sorted[i + 1].ts - sorted[i].ts)
                 // Guard against zero/negative or pathological gaps; cap at the median
                 // so a single huge wall-clock gap doesn't blow up one bucket.
-                dur = (gap > 0) ? gap : tailDuration
+                dur = (gap > 0) ? min(gap, tailDuration) : tailDuration
             } else {
                 dur = tailDuration
             }
