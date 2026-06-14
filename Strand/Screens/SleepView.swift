@@ -1271,9 +1271,14 @@ private struct Night {
         return "\(Night.spanFmt.string(from: onsetDay)) → \(Night.dateFmt.string(from: wakeDay))"
     }
 
-    // 12-hour clock for the Asleep/Woke row (e.g. "11:42 PM") — the times people read at a glance.
+    // Clock for the Asleep/Woke row — the times people read at a glance. The "jmm" skeleton
+    // follows the device's 12-/24-hour setting ("11:42 PM" or "23:42") instead of forcing one
+    // on everyone, matching the HR-tooltip / workout times (#337).
     private static let timeFmt: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "h:mm a"; return f
+        let f = DateFormatter()
+        f.locale = Locale.current
+        f.setLocalizedDateFormatFromTemplate("jmm")
+        return f
     }()
     private static let dateFmt: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "EEE d MMM"; return f
