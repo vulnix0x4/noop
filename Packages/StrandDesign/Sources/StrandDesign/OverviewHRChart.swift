@@ -314,6 +314,42 @@ public struct OverviewHRChart: View {
             }
         }
         .frame(height: height)
+        // Collapse the Charts marks into ONE meaningful VoiceOver element with a summary, instead of
+        // letting VoiceOver walk every line/area/rule/rect mark as a separate, contextless axis value
+        // (matches the sibling TrendChart). The only datum affordance otherwise is hover, which is
+        // dead on touch — so on iPhone this chart spoke no heart rate at all.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Heart rate, 24 hours"))
+        .accessibilityValue(Text(accessibilitySummary))
+    }
+
+    /// One-line VoiceOver summary: the day's HR (count, mean, range) plus the band/marker context the
+    /// chart shows visually, so the collapsed element still conveys the whole picture (cf. the Android
+    /// OverviewHRChart semantics).
+    private var accessibilitySummary: String {
+        guard !points.isEmpty else { return "No heart-rate data" }
+        let values = points.map(\.value)
+        let lo = values.min() ?? valueRange.lowerBound
+        let hi = values.max() ?? valueRange.upperBound
+        var parts = ["\(points.count) readings",
+                     "average \(valueFormat(averageValue)) bpm",
+                     "range \(valueFormat(lo)) to \(valueFormat(hi))"]
+        if let sleep {
+            parts.append("asleep \(Self.hoursMinutes(sleep.end.timeIntervalSince(sleep.start)))")
+        }
+        if let recovery { parts.append(recovery.label) }
+        if let effort { parts.append(effort.label) }
+        if !workouts.isEmpty {
+            parts.append(workouts.count == 1 ? "1 workout" : "\(workouts.count) workouts")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    private static func hoursMinutes(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval.rounded()))
+        let h = total / 3_600, m = (total % 3_600) / 60
+        if h > 0 && m > 0 { return "\(h)h \(m)m" }
+        return h > 0 ? "\(h)h" : "\(m)m"
     }
 }
 
