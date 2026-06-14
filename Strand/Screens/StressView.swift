@@ -227,12 +227,12 @@ struct StressView: View {
         }
     }
 
-    /// "6 am" / "2 pm" style hour-of-day label.
+    /// Hour-of-day label following the device's locale + 12-/24-hour preference ("2 PM" / "14 Uhr"),
+    /// instead of a hard-coded English "am/pm" (which read "3 pm" for 24-hour locales like German).
     private func hourLabel(_ hour: Int) -> String {
         let h = ((hour % 24) + 24) % 24
-        let ampm = h < 12 ? "am" : "pm"
-        let h12 = h % 12 == 0 ? 12 : h % 12
-        return "\(h12) \(ampm)"
+        let date = Calendar.current.date(bySettingHour: h, minute: 0, second: 0, of: Date()) ?? Date()
+        return date.formatted(.dateTime.hour())
     }
 
     // MARK: 1 · Hero — the README screen-9 SEMICIRCLE gauge on a clean frosted card.
