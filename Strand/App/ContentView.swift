@@ -39,11 +39,18 @@ struct ContentView: View {
                 showWhatsNew = false
             })
         }
-        .onAppear {
-            // Existing users who updated: their last-seen version is behind the current one.
-            if onboarded && lastSeenChangelog != AppChangelog.currentVersion {
-                showWhatsNew = true
-            }
+        // The Terms gate must stay "over everything" — don't pop What's New on top of it after a
+        // combined terms+version update. Gate on terms being current, and re-check when they're
+        // accepted (onAppear already fired before acceptance), so What's New shows right after.
+        .onAppear { showWhatsNewIfDue() }
+        .onChange(of: acceptedTerms) { _ in showWhatsNewIfDue() }
+    }
+
+    private func showWhatsNewIfDue() {
+        // Existing users who updated: their last-seen version is behind the current one.
+        if onboarded && acceptedTerms == Terms.currentVersion
+            && lastSeenChangelog != AppChangelog.currentVersion {
+            showWhatsNew = true
         }
     }
 }

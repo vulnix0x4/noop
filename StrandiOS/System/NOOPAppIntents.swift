@@ -27,8 +27,12 @@ enum PendingIntents {
         let raw = d.stringArray(forKey: key) ?? []
         d.removeObject(forKey: key)
         return raw.compactMap { entry in
+            // Guard `parts.first` rather than subscripting `parts[0]`: split(omittingEmptySubsequences:
+            // true by default) returns an EMPTY array for an empty or ":"-leading entry, and indexing
+            // [0] there is a fatal trap. This value comes from shared App Group defaults read untrusted,
+            // so a corrupt/foreign entry must be skipped, not crash the app on foreground.
             let parts = entry.split(separator: ":", maxSplits: 1)
-            guard let action = Action(rawValue: String(parts[0])) else { return nil }
+            guard let first = parts.first, let action = Action(rawValue: String(first)) else { return nil }
             let date = parts.count == 2 ? Double(parts[1]).map { Date(timeIntervalSince1970: $0) } : nil
             return (action, date)
         }
