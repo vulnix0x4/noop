@@ -257,14 +257,16 @@ object IntelligenceEngine {
             histRhrByDay[d.day] = d.restingHr?.toDouble()
             histRespByDay[d.day] = d.respRateBpm
         }
-        // Imported (cloud) nightly values WIN per day (putIfAbsent): the on-device estimate
-        // only fills days the import doesn't cover, so an import user's baseline is unchanged.
-        for ((day, v) in nightlyHrvByDay) histHrvByDay.putIfAbsent(day, v)
-        for ((day, v) in nightlyRhrByDay) histRhrByDay.putIfAbsent(day, v)
-        // NOT putIfAbsent for resp: Java's putIfAbsent treats a key mapped to NULL as absent, so
-        // an imported day whose respRateBpm is blank would be replaced by the RSA estimate —
-        // diverging from the Swift mirror (key-absence check), which keeps the imported day as a
-        // missing night. Match Swift: only fill days the import does not cover AT ALL.
+        // Imported (cloud) nightly values WIN per day: the on-device estimate only fills days the
+        // import doesn't cover AT ALL, so an import user's baseline is unchanged. Use a key-absence
+        // check, NOT putIfAbsent: Java's putIfAbsent treats a key mapped to NULL as absent, so an
+        // imported day whose avgHrv/restingHr is blank would be REPLACED by the computed estimate —
+        // diverging from the Swift mirror (`histHrvByDay[day] == nil` is true only when the KEY is
+        // absent), which keeps that imported day as a missing night. HRV/RHR are the dominant
+        // recovery drivers (~60%/~20%), so this substitution skewed Charge vs iOS. (The author already
+        // fixed this for the low-weight resp term below; HRV/RHR were missed.)
+        for ((day, v) in nightlyHrvByDay) if (day !in histHrvByDay) histHrvByDay[day] = v
+        for ((day, v) in nightlyRhrByDay) if (day !in histRhrByDay) histRhrByDay[day] = v
         for ((day, v) in nightlyRespByDay) if (day !in histRespByDay) histRespByDay[day] = v
         val hrvSeq = histHrvByDay.entries.sortedBy { it.key }.map { it.value }
         val rhrSeq = histRhrByDay.entries.sortedBy { it.key }.map { it.value }

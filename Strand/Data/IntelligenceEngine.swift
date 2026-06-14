@@ -86,11 +86,18 @@ final class IntelligenceEngine: ObservableObject {
         let tzOffset = TimeZone.current.secondsFromGMT()
 
         // ── Pass 1: analyse each offloaded night against the IMPORTED-ONLY baseline. For a BLE-only
-        // user `repo.days` (imported) is empty, so the HRV baseline isn't usable yet and recovery is
+        // user the imported daily rows are empty, so the HRV baseline isn't usable yet and recovery is
         // null here — but each night's avgHrv/restingHr are computed baseline-INDEPENDENTLY, so we
-        // harvest them to SEED the baseline and re-score in pass 2. foldHistory winsorizes outliers;
-        // repo.days is published oldest→newest, so the replay order is already chronological. (#78)
-        let hist = repo.days
+        // harvest them to SEED the baseline and re-score in pass 2. foldHistory winsorizes outliers.
+        //
+        // Read the imported rows DIRECTLY (deviceId is the imported id; computed rows live under the
+        // sibling `-noop` id) over the full history, sorted chronologically — NOT `repo.days`, which is
+        // the merged published cache (it pre-loads prior computed `-noop` rows and back-fills nil
+        // imported HRV/RHR/resp fields from computed values). Using the merge contaminated this very
+        // "imported-only" baseline with computed values and made the fold window depend on whichever
+        // refresh last ran (4000 vs 120 days). This mirrors the Android port's `days(importedDeviceId)`.
+        let hist = ((try? await store.dailyMetrics(deviceId: deviceId, from: "0000-01-01", to: "9999-12-31")) ?? [])
+            .sorted { $0.day < $1.day }
         let hrvBase1 = Baselines.foldHistory(hist.map { $0.avgHrv }, cfg: hrvCfg)
         let rhrBase1 = Baselines.foldHistory(hist.map { $0.restingHr.map(Double.init) }, cfg: rhrCfg)
         let baselines1 = AnalyticsEngine.ProfileBaselines(hrv: hrvBase1, restingHR: rhrBase1)
