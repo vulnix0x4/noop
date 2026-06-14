@@ -68,18 +68,19 @@ enum class ScoreConfidence(val raw: String) {
         const val solidHrSamples: Int = 3600
 
         /**
-         * Rest (sleep performance) confidence.
-         * - null score (no in-bed session) → CALIBRATING.
-         * - score present but the personal sleep-need is still the 8 h default (fewer
-         *   than [buildingNightsThreshold] nights of history to refine it) → BUILDING.
-         * - otherwise → SOLID.
+         * Rest (sleep performance) confidence — mirrors Swift `ScoreConfidence.rest`. The tier
+         * reflects how complete THIS night's Rest inputs are, not the sleep-need history length.
+         * - no in-bed session → CALIBRATING.
+         * - a session exists but has no staged sleep (no deep/REM — e.g. a sparse night), so
+         *   restorative + efficiency aren't real inputs → BUILDING.
+         * - a session with staged sleep present → SOLID.
          *
-         * @param score the computed Rest composite, or null.
-         * @param sleepNeedNights number of recent nights that informed the personal need.
+         * @param hasSession whether the day has at least one matched in-bed session.
+         * @param hasStagedSleep whether the night has staged sleep (deep + REM seconds > 0).
          */
-        fun forRest(score: Double?, sleepNeedNights: Int): ScoreConfidence {
-            if (score == null) return CALIBRATING
-            return if (sleepNeedNights < buildingNightsThreshold) BUILDING else SOLID
+        fun forRest(hasSession: Boolean, hasStagedSleep: Boolean): ScoreConfidence {
+            if (!hasSession) return CALIBRATING
+            return if (hasStagedSleep) SOLID else BUILDING
         }
     }
 }

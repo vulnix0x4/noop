@@ -273,9 +273,14 @@ class ChargeEffortRestScoringTest {
 
     @Test
     fun confidence_restTiers() {
-        assertEquals(ScoreConfidence.CALIBRATING, ScoreConfidence.forRest(null, 10))
-        assertEquals(ScoreConfidence.BUILDING, ScoreConfidence.forRest(80.0, 3))
-        assertEquals(ScoreConfidence.SOLID, ScoreConfidence.forRest(80.0, 14))
+        // Mirrors Swift AnalyticsEngineTests: the tier depends on staged sleep for THIS night,
+        // not on sleep-need history length.
+        assertEquals(ScoreConfidence.CALIBRATING,
+            ScoreConfidence.forRest(hasSession = false, hasStagedSleep = false))
+        assertEquals(ScoreConfidence.BUILDING,
+            ScoreConfidence.forRest(hasSession = true, hasStagedSleep = false))
+        assertEquals(ScoreConfidence.SOLID,
+            ScoreConfidence.forRest(hasSession = true, hasStagedSleep = true))
     }
 
     @Test

@@ -344,7 +344,7 @@ object AnalyticsEngine {
         // ── Per-score confidence tiers (mirror Swift ScoreConfidence.derive decisions) ──
         val chargeConfidence = ScoreConfidence.forCharge(recovery, baselines.hrv)
         val effortConfidence = ScoreConfidence.forEffort(strain, hr.size)
-        val restConfidence = ScoreConfidence.forRest(rest, sleepNeedNights)
+        val restConfidence = ScoreConfidence.forRest(matched.isNotEmpty(), (deepS + remS) > 0)
 
         return DayResult(
             daily = daily,
