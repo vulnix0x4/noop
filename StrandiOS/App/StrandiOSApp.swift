@@ -44,6 +44,10 @@ struct StrandiOSApp: App {
                 .environmentObject(model.coach)
                 .environmentObject(health)
                 .preferredColorScheme(.dark)
+                // Dynamic Type now scales the prose/label roles (StrandFont). Cap the upper end so the
+                // fixed-geometry tiles/gauges stay legible at the largest accessibility sizes rather than
+                // clipping; the common Larger-Text range still scales fully.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .onReceive(model.live.$heartRate) { _ in
                     liveActivity.update(
                         bpm: model.bpm ?? model.live.heartRate,

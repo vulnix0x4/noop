@@ -16,6 +16,10 @@ struct StrandApp: App {
                 .environmentObject(model.coach)
                 .frame(minWidth: 1000, minHeight: 700)
                 .preferredColorScheme(.dark)
+                // Dynamic Type now scales the prose/label roles (StrandFont). Cap the upper end so the
+                // fixed-geometry tiles/gauges stay legible at the largest accessibility sizes rather than
+                // clipping; the common Larger-Text range still scales fully.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 820)
