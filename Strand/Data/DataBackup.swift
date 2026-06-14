@@ -179,7 +179,22 @@ enum DataBackup {
             removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
             removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
 
-            try fm.copyItem(at: source, to: dbURL)
+            do {
+                try fm.copyItem(at: source, to: dbURL)
+                // Restore the backup's own -wal/-shm if present: a macOS backup taken before a
+                // checkpoint folds committed pages into those sidecars, so importing only the main
+                // file would silently drop them. SQLite folds them in on the next open.
+                restoreSidecar(from: source, toMainPath: dbPath, suffix: "-wal")
+                restoreSidecar(from: source, toMainPath: dbPath, suffix: "-shm")
+            } catch {
+                // The live DB was just removed and the replacement didn't land. Roll back to the
+                // snapshot so a failed import leaves the user's data exactly as it was, instead of a
+                // fresh-empty DB on relaunch (mirrors the Android rollback).
+                if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
+                    try? fm.copyItem(at: sidecar, to: dbURL)
+                }
+                return .failure("Import failed — your existing data was kept. \(error.localizedDescription)")
+            }
             return .imported(sidecar: sidecar)
         } catch {
             return .failure("Import failed: \(error.localizedDescription)")
@@ -282,5 +297,17 @@ enum DataBackup {
             if fm.fileExists(atPath: target.path) { try? fm.removeItem(at: target) }
             try? fm.copyItem(at: side, to: target)
         }
+    }
+
+    /// Copy a backup's `<source><suffix>` sidecar next to the live DB if it exists, so a backup whose
+    /// WAL wasn't checkpointed at export restores its committed pages (SQLite folds them in on open).
+    /// Best-effort — failures are ignored. Pairs with `copySidecarsIfPresent` on the export side.
+    private static func restoreSidecar(from source: URL, toMainPath dbPath: String, suffix: String) {
+        let fm = FileManager.default
+        let src = URL(fileURLWithPath: source.path + suffix)
+        guard fm.fileExists(atPath: src.path) else { return }
+        let dst = URL(fileURLWithPath: dbPath + suffix)
+        if fm.fileExists(atPath: dst.path) { try? fm.removeItem(at: dst) }
+        try? fm.copyItem(at: src, to: dst)
     }
 }
