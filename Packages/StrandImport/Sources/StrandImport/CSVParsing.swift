@@ -342,15 +342,39 @@ extension Dictionary where Key == String, Value == String {
                 let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
                 if t.isEmpty { continue }
                 if let d = Double(t) { return d }
-                // Tolerate values like "1,234" or "62 ms".
-                let cleaned = t
-                    .replacingOccurrences(of: ",", with: "")
-                    .components(separatedBy: CharacterSet(charactersIn: "0123456789.+-eE").inverted)
-                    .joined()
-                if let d = Double(cleaned) { return d }
+                // Tolerate stray units ("62 ms") and locale number formats. Strip everything but digits
+                // and separators FIRST (so a trailing unit can't confuse the separator decision), then
+                // normalize the decimal separator. Blanket comma-deletion mangled European comma-decimal
+                // exports 10x ("68,4" -> 684); normalizeDecimalSeparators keeps "68,4" -> 68.4 while
+                // still treating "1,234" as a thousands group.
+                let stripped = t.components(separatedBy: CharacterSet(charactersIn: "0123456789.,+-eE").inverted).joined()
+                if let d = Double(normalizeDecimalSeparators(stripped)) { return d }
             }
         }
         return nil
+    }
+
+    /// Normalize a numeric string's separators to a dot-decimal, no-grouping form so `Double` parses it
+    /// regardless of the export locale. Decides whether a comma is a decimal point or a thousands
+    /// separator: when both ',' and '.' appear the RIGHT-MOST is the decimal and the other is grouping;
+    /// a lone comma with 1–2 trailing digits is a decimal, otherwise it's grouping.
+    ///   "1,234" -> "1234"   "68,4" -> "68.4"   "1.234,56" -> "1234.56"   "1,234.56" -> "1234.56"
+    func normalizeDecimalSeparators(_ s: String) -> String {
+        let hasComma = s.contains(","), hasDot = s.contains(".")
+        if hasComma && hasDot {
+            if s.lastIndex(of: ",")! > s.lastIndex(of: ".")! {        // European: comma decimal, dot grouping
+                return s.replacingOccurrences(of: ".", with: "").replacingOccurrences(of: ",", with: ".")
+            }
+            return s.replacingOccurrences(of: ",", with: "")          // US: dot decimal, comma grouping
+        }
+        if hasComma {
+            let parts = s.split(separator: ",", omittingEmptySubsequences: false)
+            if parts.count == 2, (1...2).contains(parts[1].count), parts[1].allSatisfy(\.isNumber) {
+                return s.replacingOccurrences(of: ",", with: ".")     // decimal comma: "68,4" -> "68.4"
+            }
+            return s.replacingOccurrences(of: ",", with: "")          // thousands group: "1,234" -> "1234"
+        }
+        return s
     }
 
     /// Parse a cell as a boolean (`true`/`yes`/`1`).
