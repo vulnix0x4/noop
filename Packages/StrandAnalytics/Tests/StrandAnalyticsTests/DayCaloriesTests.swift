@@ -41,6 +41,35 @@ final class DayCaloriesTests: XCTestCase {
         XCTAssertGreaterThan(activeDay, restingDay, "active day must exceed resting day")
     }
 
+    func testSparseHRTracksElapsedTimeNotSampleCount() {
+        // A 10-minute effort at a steady active HR, sampled two ways over the SAME ~600 s span:
+        // densely at 1 Hz, and sparsely at one sample / 10 s (the WHOOP 5/MG case). Energy must
+        // track elapsed time, so the sparse estimate lands close to the dense one — NOT ~1/10th
+        // of it, as the old one-second-per-sample count produced.
+        let profile = UserProfile(weightKg: 80, heightCm: 180, age: 35, sex: "male")
+        let dense = (0..<600).map { HRSample(ts: $0, bpm: 130) }
+        let sparse = stride(from: 0, to: 600, by: 10).map { HRSample(ts: $0, bpm: 130) }
+        let denseKcal = Calories.estimateBoutCalories(dense, profile: profile, hrmax: 185.0, restingHR: 55.0).0
+        let sparseKcal = Calories.estimateBoutCalories(sparse, profile: profile, hrmax: 185.0, restingHR: 55.0).0
+        XCTAssertEqual(sparseKcal, denseKcal, accuracy: denseKcal * 0.05,
+                       "sparse HR must be counted over elapsed time, not undercounted per sample")
+        // Teeth: a per-sample count (60 samples) would be ~1/10th of the dense total.
+        XCTAssertGreaterThan(sparseKcal, denseKcal * 0.5)
+    }
+
+    func testWearGapIsCappedNotCreditedInFull() {
+        // Two active samples an hour apart must NOT credit a full hour of active burn — the
+        // per-sample interval is capped at mergeGapS (150 s). The pre-gap sample contributes
+        // 150 s and the tail 1 s, so the total equals a 151 s continuous equivalent, not 3600 s.
+        let profile = UserProfile(weightKg: 80, heightCm: 180, age: 35, sex: "male")
+        let gapped = [HRSample(ts: 0, bpm: 130), HRSample(ts: 3600, bpm: 130)]
+        let cappedEquiv = (0...150).map { HRSample(ts: $0, bpm: 130) }   // 151 s continuous
+        let gappedKcal = Calories.estimateBoutCalories(gapped, profile: profile, hrmax: 185.0, restingHR: 55.0).0
+        let equivKcal = Calories.estimateBoutCalories(cappedEquiv, profile: profile, hrmax: 185.0, restingHR: 55.0).0
+        XCTAssertEqual(gappedKcal, equivKcal, accuracy: equivKcal * 0.001,
+                       "an inter-sample gap must be capped at mergeGapS, not credited in full")
+    }
+
     // A timestamp safely inside UTC day 2026-01-02 (2026-01-02T12:00:00Z).
     private let dayUtc = "2026-01-02"
     private let noonUtc = 1_767_355_200

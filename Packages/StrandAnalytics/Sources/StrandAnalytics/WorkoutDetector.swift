@@ -387,7 +387,9 @@ public enum Calories {
         return max(0.0, eeKjMin) / workoutDivisor
     }
 
-    /// Estimate (kcal, kJ) for a workout bout. Each HR sample = 1 second of data.
+    /// Estimate (kcal, kJ) for a workout bout. Each sample is weighted by the ELAPSED time
+    /// to the next sample (capped at `WorkoutDetector.mergeGapS`), so a sparse, non-1 Hz
+    /// stream is counted over real seconds rather than undercounted as one second per sample.
     public static func estimateBoutCalories(_ hrSamples: [HRSample],
                                             profile: UserProfile,
                                             hrmax: Double?,
@@ -403,13 +405,29 @@ public enum Calories {
 
         let restingRate = restingKcalPerS(coeffs, weightKg: weightKg, heightCm: heightCm, age: age)
 
+        // Weight each sample by the ACTUAL elapsed time to the next sample, not a flat 1 s.
+        // restingRate / activeKcalPerS are per-SECOND rates, so summing one per sample only
+        // equals real energy when the stream is exactly 1 Hz. The whole-day stream and sparse
+        // WHOOP 5/MG bouts can run far below 1 sample/s, which previously undercounted energy
+        // roughly in proportion to the coverage gap (calories collapsing toward ~1 kcal, #137).
+        // Each interval is capped at mergeGapS (150 s) — the detector's own "still continuous,
+        // not resting" threshold — so a brief dropout is fully counted but a wear gap can't
+        // inflate one reading. At a steady 1 Hz every interval is ~1 s: behaviour is unchanged.
+        let ordered = hrSamples.sorted { $0.ts < $1.ts }
         var totalKcal = 0.0
-        for s in hrSamples {
-            let bpm = Double(s.bpm)
-            if bpm < activeThreshold {
-                totalKcal += restingRate
+        for i in ordered.indices {
+            let bpm = Double(ordered[i].bpm)
+            let dur: Double
+            if i < ordered.count - 1 {
+                let gap = Double(ordered[i + 1].ts - ordered[i].ts)
+                dur = gap > 0 ? min(gap, WorkoutDetector.mergeGapS) : 1.0
             } else {
-                totalKcal += activeKcalPerS(coeffs, hr: bpm, hrmax: effHRmax, weightKg: weightKg, age: age)
+                dur = 1.0   // last sample carries one representative second
+            }
+            if bpm < activeThreshold {
+                totalKcal += restingRate * dur
+            } else {
+                totalKcal += activeKcalPerS(coeffs, hr: bpm, hrmax: effHRmax, weightKg: weightKg, age: age) * dur
             }
         }
         return (totalKcal, totalKcal * 4.184)
