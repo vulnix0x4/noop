@@ -96,8 +96,10 @@ struct TodayView: View {
     @AppStorage(Self.guideCardSeenKey) private var scoringGuideCardSeen = false
     static let guideCardSeenKey = "scoringGuideCardSeen"
 
-    // THE single grid definition — every tile group reuses it so margins line up.
-    private let grid = [GridItem(.adaptive(minimum: 168), spacing: NoopMetrics.gap)]
+    // THE single grid definition — every tile group reuses it so margins line up. minimum 150 (not
+    // 168) so two tiles reliably fit a phone's ~345pt content width: at 168 the grid collapsed to a
+    // single full-width column on iPhone, which read as chunky stacked blocks instead of a tidy grid.
+    private let grid = [GridItem(.adaptive(minimum: 150), spacing: NoopMetrics.gap)]
 
     /// The logical day the selector resolves to: offset 0 is today's logical day (rolls at 04:00 like
     /// `repo.today`), past offsets count back from it. Presentation-only — used to pick which stored row
@@ -669,7 +671,9 @@ struct TodayView: View {
     /// The three score rings (Charge / Effort / Rest) over a scenic hero background.
     @ViewBuilder
     private func scoreHeroRow(d: DailyMetric?, score: Double?) -> some View {
-        let cols = [GridItem(.adaptive(minimum: 150), spacing: NoopMetrics.gap)]
+        // Three EQUAL columns so the scores read as one WHOOP-style row of rings — not the old
+        // adaptive grid that fit only two per phone width and left Rest alone with an empty cell.
+        let cols = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
         ZStack {
             ScenicHeroBackground(domain: .charge)
                 .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
@@ -678,9 +682,10 @@ struct TodayView: View {
                 heroScoreCell(domain: .charge, section: .charge) {
                     ZStack {
                         RecoveryRing(
-                            score: score ?? 0, diameter: 132,
-                            lineWidth: 13,
-                            showsLabel: score != nil, showsHover: score != nil
+                            score: score ?? 0, diameter: 96,
+                            lineWidth: 10,
+                            showsLabel: score != nil, showsWordmark: false,
+                            showsHover: score != nil
                         )
                         if score == nil { ringEmptyOverlay(d: d) }
                     }
@@ -690,8 +695,8 @@ struct TodayView: View {
                     ZStack {
                         StrainGauge(
                             strain: effortGaugeValue(d) ?? 0,
-                            outOf: effortGaugeMax, diameter: 132,
-                            lineWidth: 13,
+                            outOf: effortGaugeMax, diameter: 96,
+                            lineWidth: 10,
                             showsLabel: d?.strain != nil, showsHover: d?.strain != nil,
                             valueFormat: { _ in UnitFormatter.effortDisplay(d?.strain ?? 0, scale: effortScale) }
                         )
@@ -702,9 +707,10 @@ struct TodayView: View {
                 heroScoreCell(domain: .rest, section: .rest) {
                     ZStack {
                         RecoveryRing(
-                            score: restScore ?? 0, diameter: 132,
-                            lineWidth: 13,
-                            showsLabel: restScore != nil, showsHover: restScore != nil,
+                            score: restScore ?? 0, diameter: 96,
+                            lineWidth: 10,
+                            showsLabel: restScore != nil, showsWordmark: false,
+                            showsHover: restScore != nil,
                             valueFormat: { "Rest \(Int($0.rounded()))" }
                         )
                         if restScore == nil { ringNoData() }
@@ -715,22 +721,23 @@ struct TodayView: View {
         }
     }
 
-    /// One score-ring cell: a frosted tinted card carrying the ring + a domain label + the ⓘ.
+    /// One score-ring cell, WHOOP-style: a bare ring on the scenic hero with its domain label + ⓘ
+    /// below it (no per-ring card), so the three read as one clean row of rings.
     @ViewBuilder
     private func heroScoreCell<RingBody: View>(domain: DomainTheme, section: ScoreSection,
                                                @ViewBuilder ring: @escaping () -> RingBody) -> some View {
-        NoopCard(padding: 12, tint: domain.color) {
-            VStack(spacing: 8) {
+        VStack(spacing: 10) {
+            ring().frame(maxWidth: .infinity)
+            HStack(spacing: 5) {
                 Text(domain.rawValue.capitalized)
                     .font(StrandFont.overline)
                     .tracking(StrandFont.overlineTracking)
                     .textCase(.uppercase)
                     .foregroundStyle(domain.color)
-                ring().frame(maxWidth: .infinity)
+                scoreInfoButton(section)
             }
-            .frame(maxWidth: .infinity)
-            .overlay(alignment: .topTrailing) { scoreInfoButton(section) }
         }
+        .frame(maxWidth: .infinity)
     }
 
     /// Strain value to feed the Effort gauge, on the SELECTED display scale (#313). The stored

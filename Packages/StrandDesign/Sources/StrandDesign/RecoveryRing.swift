@@ -28,6 +28,10 @@ public struct RecoveryRing: View {
     public var lineWidth: CGFloat
     /// Whether to show the center read-out (number + state + supporting).
     public var showsLabel: Bool
+    /// Whether to draw the micro "NOOP" wordmark above the number. Turn it OFF for compact rings
+    /// (e.g. a three-up hero row) where the number is large relative to the ring and the wordmark
+    /// would overlap it.
+    public var showsWordmark: Bool
     /// Whether hovering the ring shows a subtle tooltip (score + state word).
     public var showsHover: Bool
     /// Formats the score for the hover tooltip's bold line.
@@ -39,6 +43,7 @@ public struct RecoveryRing: View {
         diameter: CGFloat = 240,
         lineWidth: CGFloat = 14,
         showsLabel: Bool = true,
+        showsWordmark: Bool = true,
         showsHover: Bool = true,
         valueFormat: @escaping (Double) -> String = { "Recovery \(Int($0.rounded()))" }
     ) {
@@ -47,6 +52,7 @@ public struct RecoveryRing: View {
         self.diameter = diameter
         self.lineWidth = lineWidth
         self.showsLabel = showsLabel
+        self.showsWordmark = showsWordmark
         self.showsHover = showsHover
         self.valueFormat = valueFormat
     }
@@ -84,7 +90,7 @@ public struct RecoveryRing: View {
             // open-ring + core-dot lock-up reads), then the micro "NOOP" wordmark
             // sitting just ABOVE the centre number.
             coreDot
-            if showsLabel { wordmark }
+            if showsLabel && showsWordmark { wordmark }
             if showsHover, let pt = hoverPoint {
                 PositionedTooltip(
                     anchor: pt,
